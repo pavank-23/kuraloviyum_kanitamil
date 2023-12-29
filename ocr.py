@@ -1,6 +1,9 @@
 import fitz
 from typing import Tuple
-import easyocr
+from google.cloud import vision
+import os
+from dotenv import load_dotenv
+import google.generativeai as palm
 
 # Convert pdf to images
 def pdf2img(input_file: str, pages: Tuple = None):
@@ -26,9 +29,37 @@ def pdf2img(input_file: str, pages: Tuple = None):
 
 # Read characters
 def ocr(file, res):
-    reader = easyocr.Reader(['ta'], gpu = False)
-    result = reader.readtext(file , detail = 0)
-    res.append(" ".join(result))
+    client = vision.ImageAnnotatorClient()
+    with open(file, "rb") as image_file:
+        content = image_file.read()
+    image = vision.Image(content=content)
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
+    for text in texts:
+        res.append(text.description)
+    if response.error.message:
+        raise Exception(
+            print(response.error.message)
+        )
+    
+# Generating image captions
+def generate_caption(content, image_captions):
+    load_dotenv()
+    api_key = os.getenv("PALM_API_KEY")
+    palm.configure(api_key=api_key)
+    prompt = """
+    You write detailed captions for images that image generating AIs can understand.
+    Generate a caption for an image which helps in enhancing the understanding of the following piece of literary work: 
+    """ + content + """
+    Think about it carefully and generate a detailed caption of 3 sentences.
+    """
+    models = [m for m in palm.list_models() if 'generateText' in m.supported_generation_methods]
+    model = models[0].name
+    completion = palm.generate_text(
+        model=model,
+        prompt=prompt
+    )
+    print(completion.result)
     
 if __name__ == "__main__":
     import sys
@@ -37,9 +68,11 @@ if __name__ == "__main__":
     # pdf2img(input_file)
     pngCounter = len(glob.glob1('.',"*.png"))
     res = []
-    chapters = [4, 6, 8,10, 12, 13, 15, 17, 18, 20, 22, 24, 26, 28, 30, 32, 35, 38, 40, 43, 45, 47, 50, 52, 56]
-    # file = open('ocr.txt', 'w+')
-    print(pngCounter)   
+    chapters = [0, 4, 6, 8,10, 12, 13, 15, 17, 18, 20, 22, 24, 26, 28, 30, 32, 35, 38, 40, 43, 45, 47, 50, 52, 56]
+    print(pngCounter)
     for i in range(pngCounter):
-        ocr('page_%s.png' % i, res)
-    print(res)
+        ocr("page_%s.png" % i, res)
+    image_captions = []
+    for i in range(1, len(chapters)):
+        generate_caption("".join(res[chapters[i - 1]: chapters[i]]), image_captions)
+    
